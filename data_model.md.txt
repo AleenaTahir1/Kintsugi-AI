@@ -1,0 +1,50 @@
+Project Title: "Kintsugi-AI: Deep Learning for Digital Heritage Restoration"1. 
+The Core Concept (The "Why")Standard Autoencoders (like in your lab) produce blurry outputs because they compress data too much.The Solution: Use a U-Net Architecture.It is an Autoencoder but with Skip Connections.It passes high-resolution details from the Encoder directly to the Decoder, allowing the model to fix scratches without losing the texture of the paper or the sharpness of the text.2. The Data Model (The "How")Since finding thousands of "Original vs. Damaged" pairs of real historical documents is impossible, you will use Self-Supervised Learning by generating synthetic damage.A. Dataset SelectionChoose one domain to keep the project focused:Old Photos: Use the CelebA-HQ (faces) or Places365 (scenery) dataset.Documents: Use the DIBCO (Document Image Binarization Contest) dataset or simple scanned book pages.Recommendation: Use CelebA (Faces). It’s easier to debug. If a nose is missing, you know the model failed. If a letter is missing in a document, it's harder to spot instantly.B. Data Pipeline (The "Corrupter")You don't need to find damaged images. You take clean images ($y$) and write a Python script to destroy them ($x$).The Transformation Function $f(y) \rightarrow x$:Input: Clean Image ($256 \times 256$ RGB).Damage Layer 1 (Scratches): Draw random white/black lines of varying thickness using OpenCV (cv2.line).Damage Layer 2 (Holes): Cut out random rectangular patches (Masking).Damage Layer 3 (Noise): Add Gaussian noise (simulating film grain) or Salt-and-Pepper noise (dust).Output: Damaged Image.Data Tuples for Training:Input ($x$): The Damaged Image.Target ($y$): The Original Clean Image.3. The Model Architecture (U-Net)You will implement a "Convolutional Autoencoder with Skip Connections."Getty ImagesLayer-by-Layer Breakdown:Encoder (Contracting Path):Conv2d (64 filters) $\rightarrow$ ReLU $\rightarrow$ MaxPool.Conv2d (128 filters) $\rightarrow$ ReLU $\rightarrow$ MaxPool.Conv2d (256 filters) $\rightarrow$ ReLU $\rightarrow$ MaxPool.Purpose: Understands "content" (is this a face? is this an eye?).Bottleneck:The deepest layer (512 filters). The abstract representation of the image.Decoder (Expansive Path):UpSample (ConvTranspose2d) to increase size.Concatenate (Skip Connection): Take the output from the corresponding Encoder layer and glue it to the current layer. This is the magic step that restores sharpness.Conv2d layers to smooth the result.Output Head:Conv2d (mapping back to 3 RGB channels).Activation: Sigmoid (if pixels are 0-1) or Tanh (if pixels are -1 to 1).4. Implementation Plan (Step-by-Step)Week 1: Data PreparationTask: Download CelebA or a similar dataset.Code: Write a CustomDataset class in PyTorch.Key Function: Implement the add_scratches_and_noise(image) function.Deliverable: A script that saves a grid: Row 1 (Originals), Row 2 (Damaged).Week 2: Model BuildingTask: Code the U-Net in PyTorch.Focus: Ensure the tensor shapes match during the concatenation step (e.g., if Encoder output is $64 \times 64$, Decoder input must match).Deliverable: Pass a random tensor torch.randn(1, 3, 256, 256) through the model and ensure output is (1, 3, 256, 256).Week 3: Training LoopTask: Write the training loop (similar to Lab 08).Loss Function: Do not use just MSE. MSE results in blurry averages.Better Loss: L1 Loss (Mean Absolute Error) + SSIM (Structural Similarity Index - optional but recommended).Formula: $Loss = \lambda_1 ||y - \hat{y}||_1$Optimizer: Adam (lr=0.0002).Week 4: Refinement & EvaluationTask: Test on images the model has never seen.Metrics: Calculate PSNR (Peak Signal-to-Noise Ratio).Bonus (Uniqueness): Try to fix a real old photo (e.g., a photo of your grandparents or a famous historical figure) to show real-world application.5. Code Skeleton (To get you started)Here is the data model code to generate your training data on the fly.Pythonimport torch
+from torch.utils.data import Dataset
+import cv2
+import numpy as np
+import random
+
+class RestorationDataset(Dataset):
+    def __init__(self, clean_image_paths, transform=None):
+        self.clean_image_paths = clean_image_paths
+        self.transform = transform
+
+    def add_damage(self, img_tensor):
+        # Convert tensor to numpy for OpenCV manipulation
+        img_np = img_tensor.permute(1, 2, 0).numpy().copy()
+        h, w, c = img_np.shape
+        
+        # 1. Add Random Lines (Scratches)
+        for _ in range(random.randint(5, 10)):
+            x1, y1 = random.randint(0, w), random.randint(0, h)
+            x2, y2 = random.randint(0, w), random.randint(0, h)
+            thickness = random.randint(1, 3)
+            # Draw white or black lines
+            color = (1, 1, 1) if random.random() > 0.5 else (0, 0, 0) 
+            cv2.line(img_np, (x1, y1), (x2, y2), color, thickness)
+
+        # 2. Add Noise (Grain)
+        noise = np.random.normal(0, 0.05, img_np.shape)
+        img_np = np.clip(img_np + noise, 0, 1)
+
+        # Convert back to tensor
+        return torch.from_numpy(img_np).permute(2, 0, 1).float()
+
+    def __getitem__(self, idx):
+        # Load clean image
+        clean_img = ... # Load your image using PIL or cv2
+        
+        # Apply transforms (Resize, ToTensor)
+        if self.transform:
+            clean_img = self.transform(clean_img)
+            
+        # Create damaged version
+        damaged_img = self.add_damage(clean_img)
+        
+        # Return Tuple: (Input, Target)
+        return damaged_img, clean_img
+
+    def __len__(self):
+        return len(self.clean_image_paths)
+Uniqueness ChecklistTo ensure full marks for "uniqueness":Custom Damage: Don't just use Gaussian noise (standard). Use the "Scratch" simulation code above.Real-world Test: Include a slide in your final presentation showing the restoration of a famous historical figure (e.g., Einstein or Quaid-e-Azam) using your model.UI: Use Gradio or Streamlit to make a web interface where a user uploads a photo, and the restored version appears side-by-side.
